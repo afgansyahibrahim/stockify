@@ -8,6 +8,7 @@
     <meta name="generator" content="Laravel">
 
     <title>Dashboard - </title>
+    
     @vite(['resources/css/app.css','resources/js/app.js'])
     <link rel="canonical" href="{{ request()->fullUrl() }}">
 
@@ -49,6 +50,7 @@
             document.documentElement.classList.remove('dark')
         }
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 </head>
 @php
     $whiteBg = isset($params['white_bg']) && $params['white_bg'];
