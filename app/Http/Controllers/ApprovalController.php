@@ -46,6 +46,12 @@ class ApprovalController extends Controller
                     );
                 }
 
+                if ($lockedTransaction->created_by === Auth::id()) {
+                    throw new RuntimeException(
+                        'Pembuat transaksi tidak dapat menyetujui pengajuannya sendiri.'
+                    );
+                }
+
                 if ($lockedTransaction->items->isEmpty()) {
                     throw new RuntimeException(
                         'Transaksi tidak memiliki detail produk.'
@@ -157,6 +163,12 @@ class ApprovalController extends Controller
             if ($lockedTransaction->status !== 'pending') {
                 throw new RuntimeException(
                     'Transaksi ini sudah diproses sebelumnya.'
+                );
+            }
+
+            if ($lockedTransaction->created_by === Auth::id()) {
+                throw new RuntimeException(
+                    'Pembuat transaksi tidak dapat menolak pengajuannya sendiri.'
                 );
             }
 

@@ -414,6 +414,12 @@ class StockOpnameController extends Controller
                 );
             }
 
+            if ($opname->created_by === Auth::id()) {
+                throw new RuntimeException(
+                    'Pembuat stock opname tidak dapat menyetujui pengajuannya sendiri.'
+                );
+            }
+
             if ($opname->items->isEmpty()) {
                 throw new RuntimeException(
                     'Stock opname tidak memiliki detail produk.'
@@ -544,6 +550,12 @@ class StockOpnameController extends Controller
                 if ($opname->status !== 'pending') {
                     throw new RuntimeException(
                         'Stock opname ini sudah diproses sebelumnya.'
+                    );
+                }
+
+                if ($opname->created_by === Auth::id()) {
+                    throw new RuntimeException(
+                        'Pembuat stock opname tidak dapat menolak pengajuannya sendiri.'
                     );
                 }
 

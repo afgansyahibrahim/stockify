@@ -1,44 +1,85 @@
-const themeToggleDarkIcon = document.getElementById('theme-toggle-dark-icon');
-const themeToggleLightIcon = document.getElementById('theme-toggle-light-icon');
+const STORAGE_KEY = 'color-theme';
+const root = document.documentElement;
 
-// Change the icons inside the button based on previous settings
-if (localStorage.getItem('color-theme') === 'dark' || (!('color-theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-    themeToggleLightIcon.classList.remove('hidden');
-} else {
-    themeToggleDarkIcon.classList.remove('hidden');
-}
+function getPreferredTheme() {
+    const savedTheme = localStorage.getItem(STORAGE_KEY);
 
-const themeToggleBtn = document.getElementById('theme-toggle');
-
-let event = new Event('dark-mode');
-
-themeToggleBtn.addEventListener('click', function() {
-
-    // toggle icons
-    themeToggleDarkIcon.classList.toggle('hidden');
-    themeToggleLightIcon.classList.toggle('hidden');
-
-    // if set via local storage previously
-    if (localStorage.getItem('color-theme')) {
-        if (localStorage.getItem('color-theme') === 'light') {
-            document.documentElement.classList.add('dark');
-            localStorage.setItem('color-theme', 'dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-            localStorage.setItem('color-theme', 'light');
-        }
-
-    // if NOT set via local storage previously
-    } else {
-        if (document.documentElement.classList.contains('dark')) {
-            document.documentElement.classList.remove('dark');
-            localStorage.setItem('color-theme', 'light');
-        } else {
-            document.documentElement.classList.add('dark');
-            localStorage.setItem('color-theme', 'dark');
-        }
+    if (savedTheme === 'dark' || savedTheme === 'light') {
+        return savedTheme;
     }
 
-    document.dispatchEvent(event);
-    
-});
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
+        ? 'dark'
+        : 'light';
+}
+
+function updateToggle(theme) {
+    const toggleButton = document.getElementById('stockify-theme-toggle');
+    const darkIcon = document.getElementById('stockify-theme-dark-icon');
+    const lightIcon = document.getElementById('stockify-theme-light-icon');
+    const isDark = theme === 'dark';
+
+    if (darkIcon) {
+        darkIcon.classList.toggle('hidden', isDark);
+    }
+
+    if (lightIcon) {
+        lightIcon.classList.toggle('hidden', !isDark);
+    }
+
+    if (toggleButton) {
+        toggleButton.setAttribute('aria-pressed', String(isDark));
+        toggleButton.setAttribute(
+            'aria-label',
+            isDark ? 'Gunakan mode terang' : 'Gunakan mode gelap'
+        );
+    }
+}
+
+function applyTheme(theme, shouldPersist = true) {
+    const isDark = theme === 'dark';
+
+    root.classList.toggle('dark', isDark);
+    root.style.colorScheme = isDark ? 'dark' : 'light';
+
+    if (shouldPersist) {
+        localStorage.setItem(STORAGE_KEY, theme);
+    }
+
+    updateToggle(theme);
+
+    document.dispatchEvent(
+        new CustomEvent('dark-mode', {
+            detail: { theme },
+        })
+    );
+}
+
+function initializeTheme() {
+    const theme = getPreferredTheme();
+    const toggleButton = document.getElementById('stockify-theme-toggle');
+
+    // The inline script in the dashboard layout has already applied this
+    // theme before painting. This keeps the button and JavaScript state aligned.
+    applyTheme(theme, false);
+
+    if (!toggleButton) {
+        return;
+    }
+
+    toggleButton.addEventListener('click', () => {
+        const nextTheme = root.classList.contains('dark')
+            ? 'light'
+            : 'dark';
+
+        applyTheme(nextTheme);
+    });
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeTheme, {
+        once: true,
+    });
+} else {
+    initializeTheme();
+}

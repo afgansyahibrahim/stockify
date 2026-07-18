@@ -153,6 +153,10 @@
                                     <p id="product-not-found" class="hidden px-4 py-6 text-center text-sm text-slate-500">
                                         Produk tidak ditemukan.
                                     </p>
+
+                                    <p id="product-search-hint" class="px-4 py-6 text-center text-sm text-slate-500">
+                                        Ketik minimal 2 huruf untuk mencari produk.
+                                    </p>
                                 </div>
                             </div>
                         </div>
@@ -294,34 +298,54 @@
             updateSummary();
         }
 
-        searchInput.addEventListener('focus', function () {
-            productMenu.classList.remove('hidden');
-        });
+        const minimumSearchLength = 2;
+        const maximumResults = 8;
+        const productOptions = document.querySelectorAll('.product-option');
+        const productNotFound = document.getElementById('product-not-found');
+        const productSearchHint = document.getElementById('product-search-hint');
 
-        searchInput.addEventListener('input', function () {
-            const keyword = this.value.toLowerCase().trim();
-            let visible = 0;
+        function resetProductSearch() {
+            productOptions.forEach(option => option.classList.add('hidden'));
+            productNotFound.classList.add('hidden');
+            productSearchHint.classList.remove('hidden');
+            productMenu.classList.add('hidden');
+        }
 
-            document.querySelectorAll('.product-option').forEach(function (option) {
+        function filterProducts() {
+            const keyword = searchInput.value.toLowerCase().trim();
+
+            if (keyword.length < minimumSearchLength) {
+                resetProductSearch();
+                return;
+            }
+
+            let matched = 0;
+            let shown = 0;
+
+            productOptions.forEach(function (option) {
                 const match = option.dataset.search.includes(keyword);
-                option.classList.toggle('hidden', !match);
+                const shouldShow = match && shown < maximumResults;
 
-                if (match) visible++;
+                option.classList.toggle('hidden', !shouldShow);
+
+                if (match) matched++;
+                if (shouldShow) shown++;
             });
 
-            document.getElementById('product-not-found').classList.toggle('hidden', visible !== 0);
+            productSearchHint.classList.add('hidden');
+            productNotFound.classList.toggle('hidden', matched !== 0);
             productMenu.classList.remove('hidden');
-        });
+        }
+
+        searchInput.addEventListener('focus', filterProducts);
+        searchInput.addEventListener('input', filterProducts);
 
         document.querySelectorAll('.product-option').forEach(function (option) {
             option.addEventListener('click', function () {
                 addProduct(option.dataset.id, option.dataset.name, option.dataset.sku);
 
                 searchInput.value = '';
-                productMenu.classList.add('hidden');
-
-                document.querySelectorAll('.product-option').forEach(item => item.classList.remove('hidden'));
-                document.getElementById('product-not-found').classList.add('hidden');
+                resetProductSearch();
             });
         });
 
@@ -331,6 +355,8 @@
             form.reset();
             productItems.innerHTML = '';
             itemIndex = 0;
+            searchInput.value = '';
+            resetProductSearch();
             updateSummary();
         });
 
@@ -340,6 +366,7 @@
             }
         });
 
+        resetProductSearch();
         updateSummary();
     });
 </script>
