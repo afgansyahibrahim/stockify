@@ -50,7 +50,7 @@
         />
         <x-sidebar-menu-dashboard
             routeName="stock.history"
-            title="Riwayat Stok"
+            title="Aktivitas Stok"
         />
     @endif
 

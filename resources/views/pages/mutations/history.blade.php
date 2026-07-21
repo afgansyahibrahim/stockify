@@ -9,11 +9,11 @@
         <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
                 <h1 class="text-2xl font-bold text-slate-900 sm:text-3xl dark:text-white">
-                    {{ $isStaff ? 'Riwayat Stok' : 'Riwayat Mutasi' }}
+                    {{ $isStaff ? 'Aktivitas Stok' : 'Riwayat Mutasi' }}
                 </h1>
                 <p class="mt-1 text-sm text-slate-500">
                     @if($isStaff)
-                        Lihat pergerakan barang masuk dan keluar yang telah disetujui.
+                        Pantau perubahan stok gudang yang telah disetujui tanpa informasi keuangan.
                     @else
                         Pantau seluruh transaksi dan perubahan stok inventaris.
                     @endif
@@ -34,8 +34,15 @@
 
         <div class="grid gap-4 sm:grid-cols-2 {{ $isStaff ? 'xl:grid-cols-3' : 'xl:grid-cols-4' }}">
             <div class="rounded-xl border border-blue-100 bg-white p-5 shadow-sm">
-                <p class="text-sm font-medium text-slate-500">Total Transaksi</p>
+                <p class="text-sm font-medium text-slate-500">
+                    {{ $isStaff ? 'Total Aktivitas' : 'Total Transaksi' }}
+                </p>
                 <p class="mt-2 text-3xl font-bold text-slate-900">{{ $summary['total'] }}</p>
+                @if($isStaff)
+                    <p class="mt-1 text-xs text-slate-500">
+                        {{ $summary['adjustments'] }} penyesuaian stok
+                    </p>
+                @endif
             </div>
 
             @if(!$isStaff)
@@ -67,7 +74,7 @@
                 <div class="lg:col-span-2">
                     <label class="mb-2 block text-sm font-semibold text-slate-700">Cari Transaksi</label>
                     <input type="text" name="search" value="{{ request('search') }}"
-                        placeholder="Kode transaksi, supplier, tujuan, atau pembuat..."
+                        placeholder="{{ $isStaff ? 'Nama atau SKU produk...' : 'Kode transaksi, produk, supplier, tujuan, atau pembuat...' }}"
                         class="w-full rounded-lg border-slate-300 px-3 py-2.5 text-sm focus:border-blue-500 focus:ring-blue-500">
                 </div>
 
@@ -157,12 +164,55 @@
             </div>
         </form>
 
+        <div class="flex flex-col gap-3 rounded-xl border border-violet-200 bg-violet-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between dark:border-violet-900/60 dark:bg-violet-950/30">
+            <div>
+                <p class="font-semibold text-violet-900 dark:text-violet-200">
+                    {{ $isStaff ? 'Ingin melihat penyesuaian stok?' : 'Ingin melihat riwayat Stock Opname?' }}
+                </p>
+                <p class="mt-1 text-sm text-violet-700 dark:text-violet-300">
+                    {{ $isStaff ? 'Lihat perubahan stok setelah penghitungan fisik dilakukan.' : 'Lihat langsung seluruh penyesuaian stok hasil penghitungan fisik.' }}
+                </p>
+            </div>
+
+            <button type="button" id="scroll-to-riwayat-opname"
+                class="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg px-5 py-3 text-sm font-bold shadow-md transition hover:brightness-110 focus:outline-none focus:ring-4 focus:ring-blue-200"
+                style="background-color: #1d4ed8 !important; border: 2px solid #1d4ed8 !important; color: #ffffff !important; opacity: 1;">
+                <span aria-hidden="true" class="text-lg" style="color: #ffffff !important;">↓</span>
+                <span style="color: #ffffff !important;">
+                    {{ $isStaff ? 'Ke Penyesuaian Stok' : 'Ke Riwayat Opname' }}
+                </span>
+            </button>
+        </div>
+
         <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
             <div class="border-b border-slate-100 px-5 py-4">
-                <h2 class="font-bold text-slate-900">Daftar Transaksi</h2>
+                <h2 class="font-bold text-slate-900">
+                    {{ $isStaff ? 'Aktivitas Stok' : 'Daftar Transaksi' }}
+                </h2>
             </div>
 
             @forelse ($transactions as $transaction)
+                @php
+                    $isSale = $transaction->type === 'out'
+                        && $transaction->outflow_category === 'sale';
+
+                    $transactionValue = 0;
+                    $transactionValueLabel = '';
+
+                    if (!$isStaff) {
+                        $transactionValue = $transaction->items->sum(
+                            fn ($item) => (int) $item->quantity * (float) (
+                                $isSale
+                                    ? ($item->sale_unit_price ?? 0)
+                                    : ($item->unit_price ?? 0)
+                            )
+                        );
+
+                        $transactionValueLabel = $transaction->type === 'in'
+                            ? 'Nilai Pembelian'
+                            : ($isSale ? 'Nilai Penjualan' : 'Nilai Modal Keluar');
+                    }
+                @endphp
                 <div class="border-b border-slate-100 p-5 last:border-0">
                     <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <div class="flex items-start gap-3">
@@ -173,7 +223,11 @@
 
                             <div>
                                 <div class="flex flex-wrap items-center gap-2">
-                                    <p class="font-bold text-slate-900">{{ $transaction->transaction_code }}</p>
+                                    @if(!$isStaff)
+                                        <p class="font-bold text-slate-900">
+                                            {{ $transaction->transaction_code }}
+                                        </p>
+                                    @endif
 
                                     <span class="rounded-full px-2.5 py-1 text-xs font-semibold
                                         {{ $transaction->type === 'in'
@@ -196,28 +250,45 @@
 
                                 <p class="mt-1 text-sm text-slate-500">
                                     {{ $transaction->transaction_date?->format('d M Y') }}
-                                    · Dibuat oleh {{ $transaction->creator?->name ?? '-' }}
+                                    @if(!$isStaff)
+                                        · Dibuat oleh {{ $transaction->creator?->name ?? '-' }}
+                                    @endif
                                 </p>
 
                                 <p class="mt-1 text-sm text-slate-600">
-                                    @if ($transaction->type === 'in')
+                                    @if ($isStaff)
+                                        {{ $transaction->type === 'in'
+                                            ? 'Penerimaan barang telah disetujui'
+                                            : ($isSale ? 'Penjualan telah disetujui' : 'Pengeluaran barang telah disetujui') }}
+                                    @elseif ($transaction->type === 'in')
                                         Supplier: {{ $transaction->supplier?->name ?? '-' }}
                                     @else
                                         Tujuan: {{ $transaction->destination ?: '-' }}
                                     @endif
 
-                                    @if ($transaction->reference_number)
+                                    @if (!$isStaff && $transaction->reference_number)
                                         · Referensi: {{ $transaction->reference_number }}
                                     @endif
                                 </p>
                             </div>
                         </div>
 
-                        <div class="lg:text-right">
-                            <p class="text-sm text-slate-500">Jumlah Barang</p>
-                            <p class="text-xl font-bold text-slate-900">
-                                {{ $transaction->items->sum('quantity') }} Item
-                            </p>
+                        <div class="flex flex-wrap gap-5 lg:justify-end lg:text-right">
+                            <div>
+                                <p class="text-sm text-slate-500">Jumlah Barang</p>
+                                <p class="text-xl font-bold text-slate-900">
+                                    {{ $transaction->items->sum('quantity') }} Item
+                                </p>
+                            </div>
+
+                            @if(!$isStaff)
+                                <div class="border-l border-slate-200 pl-5">
+                                    <p class="text-sm text-slate-500">{{ $transactionValueLabel }}</p>
+                                    <p class="text-xl font-bold {{ $isSale ? 'text-emerald-600' : 'text-slate-900' }}">
+                                        Rp {{ number_format($transactionValue, 0, ',', '.') }}
+                                    </p>
+                                </div>
+                            @endif
                         </div>
                     </div>
 
@@ -228,17 +299,44 @@
 
                         <div class="mt-3 space-y-2">
                             @foreach ($transaction->items as $item)
-                                <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-sm last:border-0 last:pb-0">
-                                    <span class="font-medium text-slate-700">
-                                        {{ $item->product?->name ?? 'Produk sudah dihapus' }}
-                                    </span>
-                                    <span class="font-semibold text-slate-900">
-                                        {{ $item->quantity }} Pcs
-                                    </span>
+                                <div class="flex flex-col gap-2 border-b border-slate-200 pb-2 text-sm last:border-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+                                    <div>
+                                        <p class="font-medium text-slate-700">
+                                            {{ $item->product?->name ?? 'Produk sudah dihapus' }}
+                                        </p>
+                                        @if(!$isStaff)
+                                            @php
+                                                $itemPrice = $isSale
+                                                    ? (float) ($item->sale_unit_price ?? 0)
+                                                    : (float) ($item->unit_price ?? 0);
+                                            @endphp
+                                            <p class="mt-1 text-xs text-slate-500">
+                                                {{ $transaction->type === 'in'
+                                                    ? 'Harga beli'
+                                                    : ($isSale ? 'Harga jual' : 'Nilai modal') }}:
+                                                Rp {{ number_format($itemPrice, 0, ',', '.') }} / Pcs
+                                            </p>
+                                        @endif
+                                    </div>
+                                    <div class="text-left sm:text-right">
+                                        <p class="font-semibold text-slate-900">
+                                            {{ $item->quantity }} Pcs
+                                        </p>
+                                        @if($isStaff)
+                                            <p class="mt-1 text-xs text-slate-500">
+                                                Stok saat ini:
+                                                {{ $item->product ? $item->product->stock . ' Pcs' : 'Tidak tersedia' }}
+                                            </p>
+                                        @else
+                                            <p class="mt-1 text-xs font-semibold {{ $isSale ? 'text-emerald-600' : 'text-slate-600' }}">
+                                                Subtotal Rp {{ number_format($item->quantity * $itemPrice, 0, ',', '.') }}
+                                            </p>
+                                        @endif
+                                    </div>
                                 </div>
                             @endforeach
 
-                            @if ($transaction->notes)
+                            @if (!$isStaff && $transaction->notes)
                                 <p class="border-t border-slate-200 pt-3 text-sm text-slate-500">
                                     Catatan: {{ $transaction->notes }}
                                 </p>
@@ -272,16 +370,16 @@
             @endif
         </div>
         {{-- Riwayat penyesuaian Stock Opname --}}
-<div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+<div id="riwayat-opname" class="scroll-mt-24 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
     <div class="border-b border-slate-100 px-5 py-4">
         <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <div>
                 <h2 class="font-bold text-slate-900">
-                    Penyesuaian Stock Opname
+                    {{ $isStaff ? 'Penyesuaian Stok' : 'Penyesuaian Stok dan Stock Opname' }}
                 </h2>
 
                 <p class="mt-1 text-sm text-slate-500">
-                    Riwayat perubahan stok berdasarkan hasil penghitungan fisik.
+                    {{ $isStaff ? 'Perubahan stok setelah stock opname atau pencatatan barang rusak dan hilang.' : 'Riwayat hasil stock opname serta laporan barang rusak atau hilang.' }}
                 </p>
             </div>
 
@@ -306,13 +404,15 @@
                                 {{ $adjustment->product?->name ?? 'Produk tidak ditemukan' }}
                             </p>
 
-                            <span class="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700">
-                                Penyesuaian Opname
+                            <span class="rounded-full px-2.5 py-1 text-xs font-semibold {{ $adjustment->adjustment_type === 'damage_loss' ? 'bg-rose-100 text-rose-700' : 'bg-violet-100 text-violet-700' }}">
+                                {{ $adjustment->adjustment_type === 'damage_loss' ? 'Rusak / Hilang' : 'Penyesuaian Opname' }}
                             </span>
 
-                            <span class="font-mono text-xs font-semibold text-blue-600">
-                                {{ $adjustment->stockOpname?->opname_code ?? '-' }}
-                            </span>
+                            @if(!$isStaff)
+                                <span class="font-mono text-xs font-semibold text-blue-600">
+                                    {{ $adjustment->stockOpname?->opname_code ?? '-' }}
+                                </span>
+                            @endif
                         </div>
 
                         <p class="mt-1 font-mono text-xs text-slate-400">
@@ -321,13 +421,22 @@
 
                         <p class="mt-2 text-sm text-slate-500">
                             {{ optional($adjustment->adjusted_at)->format('d M Y H:i') }}
-                            · Disetujui oleh
-                            {{ $adjustment->approver?->name ?? '-' }}
+                            @if(!$isStaff)
+                                · Disetujui oleh {{ $adjustment->approver?->name ?? '-' }}
+                            @endif
                         </p>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-3 gap-5 rounded-lg bg-slate-50 px-4 py-3 text-center">
+                @if(!$isStaff)
+                    @php
+                        $unitCost = (float) ($adjustment->unit_cost ?? 0);
+                        $adjustmentValue = abs((int) $adjustment->difference) * $unitCost;
+                        $isLossAdjustment = $adjustment->difference < 0;
+                    @endphp
+                @endif
+
+                <div class="grid grid-cols-2 gap-4 rounded-lg bg-slate-50 px-4 py-3 text-center sm:grid-cols-4">
                     <div>
                         <p class="text-xs font-medium uppercase tracking-wide text-slate-400">
                             Sebelum
@@ -363,30 +472,82 @@
                             {{ $adjustment->difference }}
                         </p>
                     </div>
+
+                    @if($isStaff)
+                        <div>
+                            <p class="text-xs font-medium uppercase tracking-wide text-slate-400">
+                                Stok Saat Ini
+                            </p>
+
+                            <p class="mt-1 font-bold text-slate-900">
+                                {{ $adjustment->product?->stock ?? '-' }}
+                            </p>
+                        </div>
+                    @endif
+
+                    @if(!$isStaff)
+                        <div>
+                            <p class="text-xs font-medium uppercase tracking-wide text-slate-400">
+                                Harga Modal
+                            </p>
+
+                            <p class="mt-1 font-bold text-slate-900">
+                                Rp {{ number_format($unitCost, 0, ',', '.') }}
+                            </p>
+                        </div>
+                    @endif
                 </div>
             </div>
 
             <details class="mt-4 rounded-lg bg-slate-50 px-4 py-3">
                 <summary class="cursor-pointer text-sm font-semibold text-blue-600">
-                    Lihat detail opname
+                    {{ $isStaff ? 'Lihat rincian penyesuaian' : 'Lihat detail opname' }}
                 </summary>
 
                 <div class="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-                    <div>
-                        <p class="text-slate-400">Pembuat Opname</p>
-                        <p class="mt-1 font-semibold text-slate-700">
-                            {{ $adjustment->stockOpname?->creator?->name ?? '-' }}
-                        </p>
-                    </div>
+                    @if(!$isStaff)
+                        <div>
+                            <p class="text-slate-400">Pembuat Opname</p>
+                            <p class="mt-1 font-semibold text-slate-700">
+                                {{ $adjustment->stockOpname?->creator?->name ?? '-' }}
+                            </p>
+                        </div>
+                    @endif
 
                     <div>
-                        <p class="text-slate-400">Tanggal Opname</p>
+                        <p class="text-slate-400">
+                            {{ $adjustment->adjustment_type === 'damage_loss' ? 'Tanggal Laporan' : 'Tanggal Opname' }}
+                        </p>
                         <p class="mt-1 font-semibold text-slate-700">
                             {{ optional($adjustment->stockOpname?->opname_date)->format('d M Y') ?? '-' }}
                         </p>
                     </div>
 
-                    @if($adjustment->stockOpname?->notes)
+                    @if(!$isStaff)
+                        <div>
+                            <p class="text-slate-400">
+                                {{ $isLossAdjustment ? 'Nilai Kerugian' : 'Nilai Penyesuaian' }}
+                            </p>
+                            <p class="mt-1 font-semibold {{ $isLossAdjustment ? 'text-rose-600' : 'text-emerald-600' }}">
+                                {{ $isLossAdjustment ? '- ' : '+ ' }}Rp {{ number_format($adjustmentValue, 0, ',', '.') }}
+                            </p>
+                        </div>
+
+                        <div>
+                            <p class="text-slate-400">Keterangan Nilai</p>
+                            <p class="mt-1 font-semibold text-slate-700">
+                                @if($isLossAdjustment)
+                                    Mengurangi profit estimasi
+                                @elseif($adjustment->difference > 0)
+                                    Bukan pendapatan / profit
+                                @else
+                                    Tidak ada perubahan nilai
+                                @endif
+                            </p>
+                        </div>
+                    @endif
+
+                    @if(!$isStaff && $adjustment->stockOpname?->notes)
                         <div class="sm:col-span-2">
                             <p class="text-slate-400">Catatan Opname</p>
                             <p class="mt-1 font-semibold text-slate-700">
@@ -400,11 +561,11 @@
     @empty
         <div class="p-10 text-center">
             <p class="text-lg font-semibold text-slate-700">
-                Belum ada penyesuaian stock opname
+                {{ $isStaff ? 'Belum ada penyesuaian stok' : 'Belum ada penyesuaian stock opname' }}
             </p>
 
             <p class="mt-1 text-sm text-slate-500">
-                Penyesuaian akan muncul setelah stock opname disetujui.
+                Penyesuaian muncul setelah stock opname atau laporan rusak/hilang disetujui.
             </p>
         </div>
     @endforelse
@@ -421,6 +582,8 @@
     <script>
         const periodMode = document.getElementById('period_mode');
         const periodFields = document.querySelectorAll('.period-field');
+        const opnameButton = document.getElementById('scroll-to-riwayat-opname');
+        const opnameHistory = document.getElementById('riwayat-opname');
 
         function updatePeriodFields() {
             periodFields.forEach((field) => {
@@ -430,5 +593,12 @@
 
         periodMode.addEventListener('change', updatePeriodFields);
         updatePeriodFields();
+
+        opnameButton?.addEventListener('click', function () {
+            opnameHistory?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'start',
+            });
+        });
     </script>
 @endsection

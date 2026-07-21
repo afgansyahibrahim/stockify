@@ -12,6 +12,7 @@ class StockTransaction extends Model
     protected $fillable = [
         'transaction_code',
         'type',
+        'outflow_category',
         'status',
         'created_by',
         'approved_by',

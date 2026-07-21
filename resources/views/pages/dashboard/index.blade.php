@@ -19,7 +19,11 @@
             </h1>
 
             <p class="mt-1 text-sm text-slate-500 dark:text-gray-400">
-                Pantau stok, transaksi, dan pengajuan yang membutuhkan persetujuan.
+                @if(auth()->user()->role === 'staff')
+                    Pantau stok gudang dan status pengajuan yang Anda buat.
+                @else
+                    Pantau stok, transaksi, dan pengajuan yang membutuhkan persetujuan.
+                @endif
             </p>
         </div>
 
@@ -78,13 +82,17 @@
         <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
             <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Masuk Hari Ini</p>
             <p class="mt-2 text-3xl font-bold text-emerald-600">{{ number_format($stockInToday) }}</p>
-            <p class="mt-1 text-xs text-slate-500">Unit disetujui</p>
+            <p class="mt-1 text-xs text-slate-500">
+                {{ auth()->user()->role === 'staff' ? 'Pengajuan saya disetujui' : 'Unit disetujui' }}
+            </p>
         </div>
 
         <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
             <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Keluar Hari Ini</p>
             <p class="mt-2 text-3xl font-bold text-rose-600">{{ number_format($stockOutToday) }}</p>
-            <p class="mt-1 text-xs text-slate-500">Unit disetujui</p>
+            <p class="mt-1 text-xs text-slate-500">
+                {{ auth()->user()->role === 'staff' ? 'Pengajuan saya disetujui' : 'Unit disetujui' }}
+            </p>
         </div>
 
         <div class="rounded-xl border border-rose-200 bg-rose-50 p-5 shadow-sm">
@@ -94,35 +102,81 @@
         </div>
     </div>
 
-    <div class="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2 dark:border-gray-700 dark:bg-gray-800">
+    @if(auth()->user()->role === 'admin' && $financialSummary)
+        <div class="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-5 dark:border-blue-900/60 dark:bg-blue-950/30">
+            <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h2 class="font-bold text-blue-950 dark:text-blue-100">Keuangan Bulan Ini</h2>
+                    <p class="mt-1 text-sm text-blue-700 dark:text-blue-300">Ringkasan penjualan yang sudah disetujui. Biaya operasional belum termasuk.</p>
+                </div>
+                <a href="{{ route('reports.index', ['period_mode' => 'month', 'period_month' => now()->format('Y-m')]) }}" class="text-sm font-bold text-blue-700 dark:text-blue-300">Lihat laporan →</a>
+            </div>
+            <div class="mt-4 grid gap-4 sm:grid-cols-3">
+                <div class="rounded-lg bg-white p-4 shadow-sm dark:bg-gray-800"><p class="text-xs font-semibold uppercase text-slate-500">Omzet</p><p class="mt-2 text-xl font-bold text-emerald-600">Rp {{ number_format($financialSummary['revenue'], 0, ',', '.') }}</p></div>
+                <div class="rounded-lg bg-white p-4 shadow-sm dark:bg-gray-800"><p class="text-xs font-semibold uppercase text-slate-500">Profit Kotor</p><p class="mt-2 text-xl font-bold text-blue-700 dark:text-blue-300">Rp {{ number_format($financialSummary['gross_profit'], 0, ',', '.') }}</p></div>
+                @php
+                    $estimatedProfit = (float) $financialSummary['estimated_profit'];
+                    $profitCardClass = $estimatedProfit < 0
+                        ? 'border border-rose-200 bg-rose-50 dark:border-rose-900/60 dark:bg-rose-950/30'
+                        : ($estimatedProfit > 0
+                            ? 'border border-emerald-200 bg-emerald-50 dark:border-emerald-900/60 dark:bg-emerald-950/30'
+                            : 'border border-slate-200 bg-slate-50 dark:border-gray-700 dark:bg-gray-800');
+                    $profitTextClass = $estimatedProfit < 0
+                        ? 'text-rose-700 dark:text-rose-300'
+                        : ($estimatedProfit > 0
+                            ? 'text-emerald-700 dark:text-emerald-300'
+                            : 'text-slate-800 dark:text-white');
+                @endphp
+
+                <div class="rounded-lg p-4 shadow-sm {{ $profitCardClass }}">
+                    <p class="text-xs font-semibold uppercase {{ $profitTextClass }}">Profit Bersih Estimasi</p>
+                    <p class="mt-2 text-xl font-bold {{ $profitTextClass }}">
+                        Rp {{ number_format($estimatedProfit, 0, ',', '.') }}
+                    </p>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <div class="mb-6 grid grid-cols-1 gap-6 {{ auth()->user()->role === 'staff' ? '' : 'xl:grid-cols-3' }}">
+        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm {{ auth()->user()->role === 'staff' ? '' : 'xl:col-span-2' }} dark:border-gray-700 dark:bg-gray-800">
             <div class="mb-5">
-                <h2 class="text-base font-bold text-slate-900 dark:text-white">Arus Stok 7 Hari Terakhir</h2>
+                <h2 class="text-base font-bold text-slate-900 dark:text-white">
+                    {{ auth()->user()->role === 'staff' ? 'Pengajuan Saya: 7 Hari Terakhir' : 'Arus Stok 7 Hari Terakhir' }}
+                </h2>
                 <p class="mt-1 text-sm text-slate-500 dark:text-gray-400">
-                    Perbandingan barang masuk dan keluar yang sudah disetujui.
+                    {{ auth()->user()->role === 'staff'
+                        ? 'Barang masuk dan keluar dari pengajuan Anda yang sudah disetujui.'
+                        : 'Perbandingan barang masuk dan keluar yang sudah disetujui.' }}
                 </p>
             </div>
 
             <div id="weekly-chart" class="h-80"></div>
         </div>
 
+        @if(auth()->user()->role !== 'staff')
         <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
             <h2 class="text-base font-bold text-slate-900 dark:text-white">Produk per Kategori</h2>
             <p class="mt-1 text-sm text-slate-500 dark:text-gray-400">Kategori dengan jumlah produk terbanyak.</p>
 
             <div id="category-chart" class="mt-3 h-72"></div>
         </div>
+        @endif
     </div>
 
     <div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm xl:col-span-2 dark:border-gray-700 dark:bg-gray-800">
             <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-gray-700">
                 <div>
-                    <h2 class="text-base font-bold text-slate-900 dark:text-white">Aktivitas Terbaru</h2>
-                    <p class="mt-1 text-sm text-slate-500">Transaksi yang sudah disetujui.</p>
+                    <h2 class="text-base font-bold text-slate-900 dark:text-white">
+                        {{ auth()->user()->role === 'staff' ? 'Aktivitas Saya' : 'Aktivitas Terbaru' }}
+                    </h2>
+                    <p class="mt-1 text-sm text-slate-500">
+                        {{ auth()->user()->role === 'staff' ? 'Pengajuan Anda yang sudah disetujui.' : 'Transaksi yang sudah disetujui.' }}
+                    </p>
                 </div>
 
-                <a href="{{ route('stock.history') }}"
+                <a href="{{ auth()->user()->role === 'staff' ? route('stock.my-history') : route('stock.history') }}"
                     class="text-sm font-semibold text-blue-600">
                     Lihat semua
                 </a>
@@ -187,7 +241,9 @@
                     </div>
                 @empty
                     <div class="px-5 py-12 text-center text-sm text-slate-500">
-                        Belum ada aktivitas stok yang disetujui.
+                        {{ auth()->user()->role === 'staff'
+                            ? 'Belum ada pengajuan Anda yang disetujui.'
+                            : 'Belum ada aktivitas stok yang disetujui.' }}
                     </div>
                 @endforelse
             </div>
@@ -281,6 +337,7 @@
 
         new ApexCharts(document.querySelector('#weekly-chart'), weeklyOptions).render();
 
+        @if(auth()->user()->role !== 'staff')
         const categoryOptions = {
             series: @json($categories->pluck('products_count')),
             labels: @json($categories->pluck('name')),
@@ -295,6 +352,7 @@
         };
 
         new ApexCharts(document.querySelector('#category-chart'), categoryOptions).render();
+        @endif
     });
 </script>
 @endsection

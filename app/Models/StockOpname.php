@@ -12,6 +12,7 @@ class StockOpname extends Model
     protected $fillable = [
         'opname_code',
         'status',
+        'adjustment_type',
         'opname_date',
         'created_by',
         'approved_by',

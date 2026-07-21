@@ -3,6 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\ActivityLog;
+use App\Models\Category;
+use App\Models\Supplier;
+use App\Models\User;
 use Illuminate\Http\Request;
 
 class ActivityLogController extends Controller
@@ -88,6 +91,62 @@ class ActivityLogController extends Controller
             ->paginate(15)
             ->withQueryString();
 
+        /*
+        |--------------------------------------------------------------------------
+        | Referensi nama untuk detail perubahan
+        |--------------------------------------------------------------------------
+        |
+        | Nilai log menyimpan ID agar jejak audit tetap ringkas. Tampilan tidak
+        | boleh memperlihatkan ID teknis tersebut kepada pengguna, sehingga nama
+        | pengguna, supplier, dan kategori disiapkan untuk halaman log.
+        |
+        */
+
+        $referenceIds = [
+            'users' => [],
+            'suppliers' => [],
+            'categories' => [],
+        ];
+
+        foreach ($logs as $log) {
+            foreach ([$log->old_values, $log->new_values] as $values) {
+                if (! is_array($values)) {
+                    continue;
+                }
+
+                foreach (['approved_by', 'created_by', 'updated_by'] as $key) {
+                    if (! empty($values[$key])) {
+                        $referenceIds['users'][] = (int) $values[$key];
+                    }
+                }
+
+                if (! empty($values['supplier_id'])) {
+                    $referenceIds['suppliers'][] = (int) $values['supplier_id'];
+                }
+
+                if (! empty($values['category_id'])) {
+                    $referenceIds['categories'][] = (int) $values['category_id'];
+                }
+            }
+        }
+
+        $referenceNames = [
+            'users' => User::query()
+                ->whereIn('id', array_unique($referenceIds['users']))
+                ->pluck('name', 'id')
+                ->all(),
+
+            'suppliers' => Supplier::query()
+                ->whereIn('id', array_unique($referenceIds['suppliers']))
+                ->pluck('name', 'id')
+                ->all(),
+
+            'categories' => Category::query()
+                ->whereIn('id', array_unique($referenceIds['categories']))
+                ->pluck('name', 'id')
+                ->all(),
+        ];
+
         $actions = ActivityLog::query()
             ->select('action')
             ->distinct()
@@ -115,7 +174,8 @@ class ActivityLogController extends Controller
             compact(
                 'logs',
                 'actions',
-                'summary'
+                'summary',
+                'referenceNames'
             )
         );
     }

@@ -15,12 +15,15 @@ class StockAdjustment extends Model
         'stock_before',
         'stock_after',
         'difference',
+        'adjustment_type',
+        'unit_cost',
         'approved_by',
         'adjusted_at',
     ];
 
     protected $casts = [
         'adjusted_at' => 'datetime',
+        'unit_cost' => 'decimal:2',
     ];
 
     public function stockOpname()

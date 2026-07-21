@@ -1,6 +1,154 @@
 @extends('layouts.dashboard')
 
 @section('content')
+@php
+    $actionLabels = [
+        'transaction.created' => 'Pengajuan Transaksi Dibuat',
+        'transaction.approved' => 'Transaksi Disetujui',
+        'transaction.rejected' => 'Transaksi Ditolak',
+        'product.created' => 'Produk Dibuat',
+        'product.updated' => 'Produk Diubah',
+        'product.deactivated' => 'Produk Dinonaktifkan',
+        'product.activated' => 'Produk Diaktifkan',
+        'product.deleted' => 'Produk Dihapus',
+        'stock_opname.created' => 'Stock Opname Dibuat',
+        'stock_opname.approved' => 'Stock Opname Disetujui',
+        'stock_opname.rejected' => 'Stock Opname Ditolak',
+        'stock_opname.deleted' => 'Stock Opname Dihapus',
+    ];
+
+    $subjectLabels = [
+        'App\\Models\\Product' => 'Produk',
+        'App\\Models\\StockTransaction' => 'Transaksi Stok',
+        'App\\Models\\StockOpname' => 'Stock Opname',
+    ];
+
+    $fieldLabels = [
+        'name' => 'Nama Produk',
+        'sku' => 'SKU',
+        'category_id' => 'Kategori',
+        'supplier_id' => 'Supplier',
+        'stock' => 'Stok',
+        'minimum_stock' => 'Stok Minimum',
+        'selling_price' => 'Harga Jual',
+        'is_active' => 'Status Produk',
+        'attributes' => 'Atribut Produk',
+        'type' => 'Jenis Transaksi',
+        'outflow_category' => 'Kategori Barang Keluar',
+        'destination' => 'Tujuan',
+        'transaction_date' => 'Tanggal Transaksi',
+        'total_products' => 'Jumlah Jenis Produk',
+        'total_quantity' => 'Jumlah Unit',
+        'status' => 'Status',
+        'adjustment_type' => 'Jenis Penyesuaian',
+        'opname_date' => 'Tanggal Opname',
+        'approved_by' => 'Diproses Oleh',
+        'created_by' => 'Dibuat Oleh',
+        'updated_by' => 'Diubah Oleh',
+        'rejection_note' => 'Catatan Penolakan',
+    ];
+
+    $formatActivityValue = function (string $key, mixed $value) use ($referenceNames): string {
+        if ($value === null || $value === '') {
+            return '—';
+        }
+
+        if (in_array($key, ['approved_by', 'created_by', 'updated_by'], true)) {
+            return $referenceNames['users'][$value] ?? 'Pengguna tidak tersedia';
+        }
+
+        if ($key === 'supplier_id') {
+            return $referenceNames['suppliers'][$value] ?? 'Supplier tidak tersedia';
+        }
+
+        if ($key === 'category_id') {
+            return $referenceNames['categories'][$value] ?? 'Kategori tidak tersedia';
+        }
+
+        if ($key === 'status') {
+            return [
+                'pending' => 'Menunggu Persetujuan',
+                'approved' => 'Disetujui',
+                'rejected' => 'Ditolak',
+            ][$value] ?? (string) $value;
+        }
+
+        if ($key === 'type') {
+            return [
+                'in' => 'Barang Masuk',
+                'out' => 'Barang Keluar',
+            ][$value] ?? (string) $value;
+        }
+
+        if ($key === 'outflow_category') {
+            return [
+                'sale' => 'Penjualan',
+                'operational' => 'Operasional',
+                'damage' => 'Rusak/Hilang',
+                'other' => 'Lainnya',
+            ][$value] ?? (string) $value;
+        }
+
+        if ($key === 'adjustment_type') {
+            return [
+                'opname' => 'Stock Opname',
+                'damage_loss' => 'Barang Rusak/Hilang',
+            ][$value] ?? (string) $value;
+        }
+
+        if ($key === 'is_active') {
+            return $value ? 'Aktif' : 'Nonaktif';
+        }
+
+        if (in_array($key, ['selling_price'], true) && is_numeric($value)) {
+            return 'Rp ' . number_format((float) $value, 0, ',', '.');
+        }
+
+        if (in_array($key, ['stock', 'minimum_stock', 'total_quantity'], true) && is_numeric($value)) {
+            return number_format((float) $value, 0, ',', '.') . ' pcs';
+        }
+
+        if (in_array($key, ['total_products'], true) && is_numeric($value)) {
+            return number_format((float) $value, 0, ',', '.') . ' produk';
+        }
+
+        if (in_array($key, ['transaction_date', 'opname_date'], true)) {
+            try {
+                return \Illuminate\Support\Carbon::parse($value)->format('d/m/Y');
+            } catch (\Throwable) {
+                return (string) $value;
+            }
+        }
+
+        if ($key === 'attributes' && is_array($value)) {
+            $attributes = collect($value)
+                ->map(function ($attribute) {
+                    if (! is_array($attribute)) {
+                        return (string) $attribute;
+                    }
+
+                    $name = $attribute['name'] ?? 'Atribut';
+                    $attributeValue = $attribute['value'] ?? '—';
+
+                    return $name . ': ' . $attributeValue;
+                })
+                ->filter()
+                ->implode(', ');
+
+            return $attributes !== '' ? $attributes : '—';
+        }
+
+        if (is_array($value)) {
+            return collect($value)
+                ->map(function ($item) {
+                    return is_scalar($item) ? (string) $item : 'Data tersedia';
+                })
+                ->implode(', ');
+        }
+
+        return (string) $value;
+    };
+@endphp
 <div class="min-h-screen w-full bg-slate-50 p-4 sm:p-6 dark:bg-gray-900">
 
     {{-- Header --}}
@@ -145,6 +293,13 @@
         <div class="divide-y divide-slate-100 dark:divide-gray-700">
             @forelse($logs as $log)
                 @php
+                    $oldValues = is_array($log->old_values) ? $log->old_values : [];
+                    $newValues = is_array($log->new_values) ? $log->new_values : [];
+                    $changedKeys = array_values(array_unique([
+                        ...array_keys($oldValues),
+                        ...array_keys($newValues),
+                    ]));
+
                     $actionClass = match(true) {
                         str_contains($log->action, 'approved') =>
                             'bg-emerald-100 text-emerald-700',
@@ -165,6 +320,14 @@
                         default =>
                             'bg-violet-100 text-violet-700',
                     };
+
+                    $actionLabel = $actionLabels[$log->action]
+                        ?? \Illuminate\Support\Str::headline(str_replace('.', ' ', $log->action));
+
+                    $subjectLabel = $subjectLabels[$log->subject_type]
+                        ?? \Illuminate\Support\Str::headline(
+                            class_basename($log->subject_type ?? 'Tidak tersedia')
+                        );
                 @endphp
 
                 <div class="p-5">
@@ -173,7 +336,7 @@
                         <div class="min-w-0">
                             <div class="flex flex-wrap items-center gap-2">
                                 <span class="rounded-full px-3 py-1 text-xs font-semibold {{ $actionClass }}">
-                                    {{ $log->action }}
+                                    {{ $actionLabel }}
                                 </span>
 
                                 <span class="text-xs text-slate-400">
@@ -220,7 +383,7 @@
                             <p>
                                 Objek:
                                 <strong class="text-slate-700 dark:text-gray-200">
-                                    {{ class_basename($log->subject_type ?? 'Tidak tersedia') }}
+                                    {{ $subjectLabel }}
                                 </strong>
                             </p>
 
@@ -233,28 +396,46 @@
                         </div>
                     </div>
 
-                    @if($log->old_values || $log->new_values)
+                    @if(count($changedKeys))
                         <details class="mt-4 rounded-lg bg-slate-50 p-4 dark:bg-gray-900">
-                            <summary class="cursor-pointer text-sm font-semibold text-blue-600">
-                                Lihat perubahan data
+                            <summary class="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-blue-600">
+                                <span>Lihat detail perubahan</span>
+
+                                <span class="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                                    {{ count($changedKeys) }} bidang
+                                </span>
                             </summary>
 
-                            <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-                                <div>
-                                    <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                        Data Sebelum
-                                    </p>
-
-                                    <pre class="overflow-x-auto whitespace-pre-wrap rounded-lg bg-white p-3 text-xs text-slate-700 dark:bg-gray-800 dark:text-gray-200">{{ $log->old_values ? json_encode($log->old_values, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) : '-' }}</pre>
+                            <div class="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                                <div class="hidden grid-cols-[minmax(9rem,0.8fr)_minmax(10rem,1fr)_minmax(10rem,1fr)] border-b border-slate-200 bg-slate-100 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-gray-700 dark:bg-gray-700 dark:text-gray-300 sm:grid">
+                                    <span>Bidang</span>
+                                    <span>Sebelum</span>
+                                    <span>Sesudah</span>
                                 </div>
 
-                                <div>
-                                    <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                        Data Sesudah
-                                    </p>
+                                <dl class="divide-y divide-slate-100 dark:divide-gray-700">
+                                    @foreach($changedKeys as $key)
+                                        <div class="grid grid-cols-1 gap-3 px-4 py-3 sm:grid-cols-[minmax(9rem,0.8fr)_minmax(10rem,1fr)_minmax(10rem,1fr)] sm:gap-4">
+                                            <dt class="text-sm font-semibold text-slate-700 dark:text-gray-200">
+                                                {{ $fieldLabels[$key] ?? \Illuminate\Support\Str::headline(str_replace('_', ' ', $key)) }}
+                                            </dt>
 
-                                    <pre class="overflow-x-auto whitespace-pre-wrap rounded-lg bg-white p-3 text-xs text-slate-700 dark:bg-gray-800 dark:text-gray-200">{{ $log->new_values ? json_encode($log->new_values, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) : '-' }}</pre>
-                                </div>
+                                            <dd class="text-sm text-slate-600 dark:text-gray-300">
+                                                <span class="mr-2 text-xs font-semibold uppercase tracking-wide text-slate-400 sm:hidden">
+                                                    Sebelum:
+                                                </span>
+                                                {{ $formatActivityValue($key, $oldValues[$key] ?? null) }}
+                                            </dd>
+
+                                            <dd class="text-sm font-medium text-slate-800 dark:text-white">
+                                                <span class="mr-2 text-xs font-semibold uppercase tracking-wide text-slate-400 sm:hidden">
+                                                    Sesudah:
+                                                </span>
+                                                {{ $formatActivityValue($key, $newValues[$key] ?? null) }}
+                                            </dd>
+                                        </div>
+                                    @endforeach
+                                </dl>
                             </div>
                         </details>
                     @endif

@@ -106,11 +106,13 @@
 
                         @if($transaction->status === 'pending')
                             <div class="flex flex-wrap gap-2">
-                                <form action="{{ route('approvals.approve', $transaction) }}" method="POST">
+                                <form action="{{ route('approvals.approve', $transaction) }}" method="POST"
+                                    data-stockify-confirm="Setujui transaksi ini? Stok akan langsung diperbarui."
+                                    data-stockify-confirm-title="Setujui transaksi"
+                                    data-stockify-confirm-label="Ya, Setujui">
                                     @csrf
 
                                     <button type="submit"
-                                        onclick="return confirm('Setujui transaksi ini? Stok akan langsung diperbarui.')"
                                         class="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">
                                         Setujui
                                     </button>

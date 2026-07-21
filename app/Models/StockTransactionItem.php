@@ -14,11 +14,13 @@ class StockTransactionItem extends Model
         'product_id',
         'quantity',
         'unit_price',
+        'sale_unit_price',
         'notes',
     ];
 
     protected $casts = [
         'unit_price' => 'decimal:2',
+        'sale_unit_price' => 'decimal:2',
     ];
 
     public function stockTransaction()

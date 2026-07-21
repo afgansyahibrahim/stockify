@@ -7,11 +7,15 @@ use App\Models\Product;
 use App\Models\StockTransaction;
 use App\Models\StockTransactionItem;
 use App\Models\StockAdjustment;
+use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
     public function index()
     {
+        $isStaff = auth()->user()->role === 'staff';
+        $userId = auth()->id();
+
         $totalProducts = Product::where('is_active', true)->count();
         $totalStock = Product::where('is_active', true)->sum('stock');
 
@@ -20,6 +24,9 @@ class DashboardController extends Controller
             ->where('stock_transactions.type', 'in')
             ->where('stock_transactions.status', 'approved')
             ->whereDate('stock_transactions.transaction_date', today())
+            ->when($isStaff, function ($query) use ($userId) {
+                $query->where('stock_transactions.created_by', $userId);
+            })
             ->sum('stock_transaction_items.quantity');
 
         $stockOutToday = StockTransactionItem::query()
@@ -27,6 +34,9 @@ class DashboardController extends Controller
             ->where('stock_transactions.type', 'out')
             ->where('stock_transactions.status', 'approved')
             ->whereDate('stock_transactions.transaction_date', today())
+            ->when($isStaff, function ($query) use ($userId) {
+                $query->where('stock_transactions.created_by', $userId);
+            })
             ->sum('stock_transaction_items.quantity');
 
         $lowStocks = Product::where('is_active', true)
@@ -40,6 +50,37 @@ class DashboardController extends Controller
             ->whereColumn('stock', '<=', 'minimum_stock')
             ->count();
 
+        $financialSummary = null;
+
+        if (auth()->user()->role === 'admin') {
+            $monthSales = StockTransactionItem::query()
+                ->join('stock_transactions', 'stock_transaction_items.stock_transaction_id', '=', 'stock_transactions.id')
+                ->where('stock_transactions.type', 'out')
+                ->where('stock_transactions.outflow_category', 'sale')
+                ->where('stock_transactions.status', 'approved')
+                ->whereYear('stock_transactions.transaction_date', now()->year)
+                ->whereMonth('stock_transactions.transaction_date', now()->month)
+                ->selectRaw('COALESCE(SUM(stock_transaction_items.quantity * stock_transaction_items.sale_unit_price), 0) as revenue')
+                ->selectRaw('COALESCE(SUM(stock_transaction_items.quantity * stock_transaction_items.unit_price), 0) as cost')
+                ->first();
+
+            $monthLosses = StockAdjustment::query()
+                ->whereIn('adjustment_type', ['damage_loss', 'opname'])
+                ->where('difference', '<', 0)
+                ->whereYear('adjusted_at', now()->year)
+                ->whereMonth('adjusted_at', now()->month)
+                ->sum(DB::raw('ABS(difference) * unit_cost'));
+
+            $revenue = (float) ($monthSales->revenue ?? 0);
+            $cost = (float) ($monthSales->cost ?? 0);
+
+            $financialSummary = [
+                'revenue' => $revenue,
+                'gross_profit' => $revenue - $cost,
+                'estimated_profit' => $revenue - $cost - $monthLosses,
+            ];
+        }
+
         $pendingCount = StockTransaction::where('status', 'pending')->count();
 
         $recentTransactionItems = StockTransactionItem::with([
@@ -48,6 +89,11 @@ class DashboardController extends Controller
 ])
     ->whereHas('stockTransaction', function ($query) {
         $query->where('status', 'approved');
+    })
+    ->when($isStaff, function ($query) use ($userId) {
+        $query->whereHas('stockTransaction', function ($transactionQuery) use ($userId) {
+            $transactionQuery->where('created_by', $userId);
+        });
     })
     ->latest('id')
     ->limit(8)
@@ -73,6 +119,11 @@ class DashboardController extends Controller
         'stockOpname.creator',
         'approver',
     ])
+        ->when($isStaff, function ($query) use ($userId) {
+            $query->whereHas('stockOpname', function ($opnameQuery) use ($userId) {
+                $opnameQuery->where('created_by', $userId);
+            });
+        })
         ->latest('adjusted_at')
         ->limit(8)
         ->get()
@@ -106,6 +157,9 @@ class DashboardController extends Controller
             ->join('stock_transactions', 'stock_transaction_items.stock_transaction_id', '=', 'stock_transactions.id')
             ->where('stock_transactions.status', 'approved')
             ->whereDate('stock_transactions.transaction_date', '>=', $startDate)
+            ->when($isStaff, function ($query) use ($userId) {
+                $query->where('stock_transactions.created_by', $userId);
+            })
             ->groupBy('date')
             ->get()
             ->keyBy('date');
@@ -113,12 +167,21 @@ class DashboardController extends Controller
         $weeklyLabels = [];
         $weeklyIn = [];
         $weeklyOut = [];
+        $indonesianDayNames = [
+            'Mon' => 'Sen',
+            'Tue' => 'Sel',
+            'Wed' => 'Rab',
+            'Thu' => 'Kam',
+            'Fri' => 'Jum',
+            'Sat' => 'Sab',
+            'Sun' => 'Min',
+        ];
 
         for ($i = 0; $i < 7; $i++) {
             $date = $startDate->copy()->addDays($i);
             $key = $date->format('Y-m-d');
 
-            $weeklyLabels[] = $date->translatedFormat('D');
+            $weeklyLabels[] = $indonesianDayNames[$date->format('D')];
             $weeklyIn[] = (int) ($weeklyData[$key]->total_in ?? 0);
             $weeklyOut[] = (int) ($weeklyData[$key]->total_out ?? 0);
         }
@@ -141,6 +204,7 @@ class DashboardController extends Controller
             'weeklyOut',
             'categories',
             'lowStockCount'
+            , 'financialSummary'
         ));
     }
 }

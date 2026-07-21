@@ -60,6 +60,30 @@
 
                     <div class="mt-5 space-y-5">
                         <div>
+                            <label for="adjustment_type" class="mb-2 block text-sm font-semibold text-slate-700 dark:text-gray-200">
+                                Jenis Penyesuaian Stok <span class="text-rose-500">*</span>
+                            </label>
+
+                            <select
+                                id="adjustment_type"
+                                name="adjustment_type"
+                                required
+                                class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                            >
+                                <option value="opname" @selected(old('adjustment_type', 'opname') === 'opname')>
+                                    Stock Opname
+                                </option>
+                                <option value="damage_loss" @selected(old('adjustment_type') === 'damage_loss')>
+                                    Barang Rusak / Hilang
+                                </option>
+                            </select>
+
+                            <p class="mt-2 text-xs text-slate-500 dark:text-gray-400">
+                                Stock opname membandingkan stok fisik. Barang rusak/hilang mengurangi stok dan wajib diberi catatan per produk.
+                            </p>
+                        </div>
+
+                        <div>
                             <label
                                 for="opname_date"
                                 class="mb-2 block text-sm font-semibold text-slate-700 dark:text-gray-200"
@@ -233,11 +257,11 @@
                                         Produk
                                     </th>
 
-                                    <th class="px-5 py-3 text-center font-semibold text-slate-600 dark:text-gray-300">
+                                    <th id="current-stock-heading" class="px-5 py-3 text-center font-semibold text-slate-600 dark:text-gray-300">
                                         Stok Sistem
                                     </th>
 
-                                    <th class="px-5 py-3 text-center font-semibold text-slate-600 dark:text-gray-300">
+                                    <th id="stock-entry-heading" class="px-5 py-3 text-center font-semibold text-slate-600 dark:text-gray-300">
                                         Stok Fisik
                                     </th>
 
@@ -331,6 +355,15 @@ document.addEventListener('DOMContentLoaded', function () {
     const stockOpnameForm =
         document.getElementById('stockOpnameForm');
 
+    const adjustmentType =
+        document.getElementById('adjustment_type');
+
+    const currentStockHeading =
+        document.getElementById('current-stock-heading');
+
+    const stockEntryHeading =
+        document.getElementById('stock-entry-heading');
+
     let selectedProducts = Array.isArray(
         oldSelectedProducts
     )
@@ -341,11 +374,9 @@ document.addEventListener('DOMContentLoaded', function () {
             stock: Number(product.stock ?? 0),
             category: String(product.category ?? ''),
             supplier: String(product.supplier ?? ''),
-            physical_stock: Number(
-                product.physical_stock
-                ?? product.stock
-                ?? 0
-            ),
+            physical_stock: adjustmentType.value === 'damage_loss'
+                ? 0
+                : Number(product.physical_stock ?? product.stock ?? 0),
             notes: String(product.notes ?? ''),
         }))
         : [];
@@ -514,11 +545,9 @@ document.addEventListener('DOMContentLoaded', function () {
             stock: Number(product.stock ?? 0),
             category: String(product.category ?? ''),
             supplier: String(product.supplier ?? ''),
-            physical_stock: Number(
-                product.physical_stock
-                ?? product.stock
-                ?? 0
-            ),
+            physical_stock: adjustmentType.value === 'damage_loss'
+                ? 0
+                : Number(product.physical_stock ?? product.stock ?? 0),
             notes: String(product.notes ?? ''),
         });
 
@@ -579,8 +608,11 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        const difference =
-            product.physical_stock - product.stock;
+        const enteredStock = adjustmentType.value === 'damage_loss'
+            ? product.stock - product.physical_stock
+            : product.physical_stock;
+
+        const difference = enteredStock - product.stock;
 
         element.textContent =
             difference > 0
@@ -629,9 +661,11 @@ document.addEventListener('DOMContentLoaded', function () {
         selectedProductsBody.innerHTML =
             selectedProducts
                 .map((product, index) => {
-                    const difference =
-                        product.physical_stock
-                        - product.stock;
+                    const enteredStock = adjustmentType.value === 'damage_loss'
+                        ? product.stock - product.physical_stock
+                        : product.physical_stock;
+
+                    const difference = enteredStock - product.stock;
 
                     let differenceClass =
                         'text-slate-500';
@@ -707,7 +741,7 @@ document.addEventListener('DOMContentLoaded', function () {
                                     maxlength="255"
                                     data-product-id="${product.id}"
                                     class="product-notes-input min-w-52 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                                    placeholder="Opsional"
+                                    placeholder="Alasan (wajib jika rusak/hilang)"
                                 >
                             </td>
 
@@ -787,9 +821,11 @@ document.addEventListener('DOMContentLoaded', function () {
         const positiveTotal =
             selectedProducts.reduce(
                 (total, product) => {
-                    const difference =
-                        product.physical_stock
-                        - product.stock;
+                    const enteredStock = adjustmentType.value === 'damage_loss'
+                        ? product.stock - product.physical_stock
+                        : product.physical_stock;
+
+                    const difference = enteredStock - product.stock;
 
                     return difference > 0
                         ? total + difference
@@ -801,9 +837,11 @@ document.addEventListener('DOMContentLoaded', function () {
         const negativeTotal =
             selectedProducts.reduce(
                 (total, product) => {
-                    const difference =
-                        product.physical_stock
-                        - product.stock;
+                    const enteredStock = adjustmentType.value === 'damage_loss'
+                        ? product.stock - product.physical_stock
+                        : product.physical_stock;
+
+                    const difference = enteredStock - product.stock;
 
                     return difference < 0
                         ? total + difference
@@ -866,6 +904,24 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     );
 
+    adjustmentType.addEventListener('change', function () {
+        const isDamageLoss = this.value === 'damage_loss';
+
+        currentStockHeading.textContent = isDamageLoss
+            ? 'Stok Fisik'
+            : 'Stok Sistem';
+
+        stockEntryHeading.textContent = isDamageLoss
+            ? 'Jumlah Rusak / Hilang'
+            : 'Stok Fisik';
+
+        selectedProducts.forEach(product => {
+            product.physical_stock = isDamageLoss ? 0 : product.stock;
+        });
+
+        renderSelectedProducts();
+    });
+
     productSearchResults.addEventListener(
         'click',
         function (event) {
@@ -909,14 +965,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
     resetFormButton.addEventListener(
         'click',
-        function () {
+        async function () {
             if (selectedProducts.length === 0) {
                 return;
             }
 
-            const confirmed = confirm(
-                'Hapus seluruh produk yang sudah dipilih?'
-            );
+            const confirmed = await window.StockifyConfirm.ask({
+                title: 'Reset stock opname',
+                message: 'Hapus seluruh produk yang sudah dipilih?',
+                confirmLabel: 'Ya, Reset',
+                variant: 'danger',
+            });
 
             if (!confirmed) {
                 return;
@@ -945,6 +1004,20 @@ document.addEventListener('DOMContentLoaded', function () {
                 'Menyimpan...';
         }
     );
+
+    if (adjustmentType.value === 'damage_loss') {
+        selectedProducts.forEach(product => {
+            product.physical_stock = 0;
+        });
+    }
+
+    currentStockHeading.textContent = adjustmentType.value === 'damage_loss'
+        ? 'Stok Fisik'
+        : 'Stok Sistem';
+
+    stockEntryHeading.textContent = adjustmentType.value === 'damage_loss'
+        ? 'Jumlah Rusak / Hilang'
+        : 'Stok Fisik';
 
     renderSelectedProducts();
 });

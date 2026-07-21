@@ -173,6 +173,7 @@
             @php
                 $totalDifference = $opname->items->sum('difference');
                 $totalProducts = $opname->items->count();
+                $adjustmentsByProduct = $opname->adjustments->keyBy('product_id');
 
                 $statusClasses = match($opname->status) {
                     'approved' => 'bg-emerald-100 text-emerald-700',
@@ -235,7 +236,9 @@
                             <form
                                 method="POST"
                                 action="{{ route('stock-opnames.approve', $opname) }}"
-                                onsubmit="return confirm('Setujui stock opname ini dan sesuaikan stok produk?')"
+                                data-stockify-confirm="Setujui stock opname ini dan sesuaikan stok produk?"
+                                data-stockify-confirm-title="Setujui stock opname"
+                                data-stockify-confirm-label="Ya, Setujui"
                             >
                                 @csrf
 
@@ -258,7 +261,10 @@
                             <form
                                 method="POST"
                                 action="{{ route('stock-opnames.destroy', $opname) }}"
-                                onsubmit="return confirm('Hapus stock opname ini?')"
+                                data-stockify-confirm="Hapus stock opname ini?"
+                                data-stockify-confirm-title="Hapus stock opname"
+                                data-stockify-confirm-label="Ya, Hapus"
+                                data-stockify-confirm-variant="danger"
                             >
                                 @csrf
                                 @method('DELETE')
@@ -332,6 +338,14 @@
                                         Selisih
                                     </th>
 
+                                    <th class="px-5 py-3 text-right font-semibold text-slate-600 dark:text-gray-300">
+                                        Harga Modal
+                                    </th>
+
+                                    <th class="px-5 py-3 text-right font-semibold text-slate-600 dark:text-gray-300">
+                                        Dampak Nilai
+                                    </th>
+
                                     <th class="px-5 py-3 text-left font-semibold text-slate-600 dark:text-gray-300">
                                         Catatan
                                     </th>
@@ -340,6 +354,11 @@
 
                             <tbody class="divide-y divide-slate-100 dark:divide-gray-700">
                                 @foreach($opname->items as $item)
+                                    @php
+                                        $adjustment = $adjustmentsByProduct->get($item->product_id);
+                                        $unitCost = (float) ($adjustment?->unit_cost ?? 0);
+                                        $adjustmentValue = abs((int) $item->difference) * $unitCost;
+                                    @endphp
                                     <tr>
                                         <td class="px-5 py-4">
                                             <p class="font-semibold text-slate-900 dark:text-white">
@@ -364,6 +383,28 @@
                                                 {{ $item->difference < 0 ? 'text-rose-600' : ($item->difference > 0 ? 'text-emerald-600' : 'text-slate-500') }}">
                                                 {{ $item->difference > 0 ? '+' : '' }}{{ $item->difference }}
                                             </span>
+                                        </td>
+
+                                        <td class="px-5 py-4 text-right font-semibold text-slate-700 dark:text-gray-200">
+                                            @if($opname->status === 'approved' && $adjustment)
+                                                Rp {{ number_format($unitCost, 0, ',', '.') }}
+                                            @elseif($opname->status === 'approved')
+                                                Rp 0
+                                            @else
+                                                <span class="text-xs font-normal text-slate-400">Setelah disetujui</span>
+                                            @endif
+                                        </td>
+
+                                        <td class="px-5 py-4 text-right font-semibold">
+                                            @if($opname->status !== 'approved')
+                                                <span class="text-xs font-normal text-slate-400">Belum tersedia</span>
+                                            @elseif($item->difference < 0)
+                                                <span class="text-rose-600">- Rp {{ number_format($adjustmentValue, 0, ',', '.') }}</span>
+                                            @elseif($item->difference > 0)
+                                                <span class="text-emerald-600">+ Rp {{ number_format($adjustmentValue, 0, ',', '.') }}</span>
+                                            @else
+                                                <span class="text-slate-500">Rp 0</span>
+                                            @endif
                                         </td>
 
                                         <td class="px-5 py-4 text-slate-500 dark:text-gray-400">

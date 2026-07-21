@@ -9,7 +9,7 @@
                 Barang Keluar
             </h1>
             <p class="mt-1 text-sm text-slate-500 dark:text-gray-400">
-                Ajukan pengeluaran produk untuk penjualan, distribusi, atau kebutuhan lainnya.
+                Catat penjualan atau pengeluaran non-penjualan. Hanya penjualan yang dihitung sebagai omzet dan profit.
             </p>
         </div>
 
@@ -59,6 +59,26 @@
                             <input type="date" name="transaction_date"
                                 value="{{ old('transaction_date', date('Y-m-d')) }}" required
                                 class="block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:ring-4 focus:ring-blue-100">
+                        </div>
+
+                        <div>
+                            <label for="outflow_category" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-gray-200">
+                                Jenis Barang Keluar
+                            </label>
+
+                            <select id="outflow_category" name="outflow_category" required
+                                class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                                <option value="sale" @selected(old('outflow_category', 'sale') === 'sale')>
+                                    Penjualan
+                                </option>
+                                <option value="non_sale" @selected(old('outflow_category') === 'non_sale')>
+                                    Pengeluaran Non-Penjualan
+                                </option>
+                            </select>
+
+                            <p id="outflow-category-help" class="mt-1.5 text-xs text-slate-500 dark:text-gray-400">
+                                Penjualan membutuhkan harga jual per unit dan dihitung pada omzet serta profit.
+                            </p>
                         </div>
 
                         <div>
@@ -131,6 +151,7 @@
                                             data-name="{{ $product->name }}"
                                             data-sku="{{ $product->sku }}"
                                             data-stock="{{ $product->stock }}"
+                                            data-selling-price="{{ $product->selling_price }}"
                                             data-search="{{ strtolower($product->name . ' ' . $product->sku) }}"
                                             {{ $product->stock <= 0 ? 'disabled' : '' }}>
 
@@ -206,6 +227,8 @@
         const emptyMessage = document.getElementById('empty-product-message');
         const itemCount = document.getElementById('item-count');
         const totalQuantity = document.getElementById('total-quantity');
+        const outflowCategory = document.getElementById('outflow_category');
+        const outflowCategoryHelp = document.getElementById('outflow-category-help');
         let itemIndex = 0;
 
         function updateSummary() {
@@ -221,7 +244,7 @@
             emptyMessage.classList.toggle('hidden', rows.length > 0);
         }
 
-        function addProduct(id, name, sku, stock) {
+        function addProduct(id, name, sku, stock, sellingPrice) {
             const alreadyAdded = Array.from(document.querySelectorAll('.product-id'))
                 .some(input => input.value === id);
 
@@ -249,7 +272,7 @@
                     </button>
                 </div>
 
-                <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div class="product-detail-grid mt-4 grid grid-cols-1 gap-3 sm:grid-cols-4">
                     <div>
                         <label class="mb-1.5 block text-xs font-semibold uppercase text-slate-500">Stok Tersedia</label>
                         <div class="flex h-[42px] items-center rounded-lg bg-slate-100 px-3 text-sm font-bold text-slate-700">
@@ -261,6 +284,12 @@
                         <label class="mb-1.5 block text-xs font-semibold uppercase text-slate-500">Jumlah Keluar</label>
                         <input type="number" min="1" max="${stock}" value="1" name="items[${index}][quantity]"
                             class="item-quantity block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm">
+                    </div>
+
+                    <div class="sale-price-field">
+                        <label class="mb-1.5 block text-xs font-semibold uppercase text-slate-500">Harga Jual / Unit</label>
+                        <input type="number" min="1" value="${sellingPrice || 0}" name="items[${index}][sale_unit_price]"
+                            class="block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" required>
                     </div>
 
                     <div>
@@ -297,6 +326,28 @@
             });
 
             updateSummary();
+            updateOutflowCategory();
+        }
+
+        function updateOutflowCategory() {
+            const isSale = outflowCategory.value === 'sale';
+
+            outflowCategoryHelp.textContent = isSale
+                ? 'Penjualan membutuhkan harga jual per unit dan dihitung pada omzet serta profit.'
+                : 'Pengeluaran non-penjualan tidak dihitung sebagai omzet maupun profit.';
+
+            document.querySelectorAll('.sale-price-field').forEach(function (field) {
+                field.classList.toggle('hidden', !isSale);
+
+                const input = field.querySelector('input');
+                input.disabled = !isSale;
+                input.required = isSale;
+            });
+
+            document.querySelectorAll('.product-detail-grid').forEach(function (grid) {
+                grid.classList.toggle('sm:grid-cols-4', isSale);
+                grid.classList.toggle('sm:grid-cols-3', !isSale);
+            });
         }
 
         const minimumSearchLength = 2;
@@ -343,12 +394,20 @@
 
         document.querySelectorAll('.product-option').forEach(function (option) {
             option.addEventListener('click', function () {
-                addProduct(option.dataset.id, option.dataset.name, option.dataset.sku, option.dataset.stock);
+                addProduct(
+                    option.dataset.id,
+                    option.dataset.name,
+                    option.dataset.sku,
+                    option.dataset.stock,
+                    option.dataset.sellingPrice
+                );
 
                 searchInput.value = '';
                 resetProductSearch();
             });
         });
+
+        outflowCategory.addEventListener('change', updateOutflowCategory);
 
         document.getElementById('reset-form').addEventListener('click', function () {
             if (!confirm('Reset seluruh data transaksi?')) return;
@@ -359,6 +418,7 @@
             searchInput.value = '';
             resetProductSearch();
             updateSummary();
+            updateOutflowCategory();
         });
 
         form.addEventListener('submit', function (event) {
@@ -388,6 +448,7 @@
 
         resetProductSearch();
         updateSummary();
+        updateOutflowCategory();
     });
 </script>
 @endsection

@@ -33,8 +33,7 @@
         @if($canManageSuppliers)
             <button
                 type="button"
-                data-modal-target="createSupplierModal"
-                data-modal-toggle="createSupplierModal"
+                id="open-supplier-modal"
                 class="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
             >
                 + Tambah Supplier
@@ -261,27 +260,29 @@
         </form>
     </div>
 </div>
-@if($canManageSuppliers)
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         const searchInput = document.getElementById('supplier-search');
         const rows = document.querySelectorAll('.supplier-row');
         const emptyResult = document.getElementById('supplier-empty-result');
 
-        searchInput.addEventListener('input', function () {
-            const keyword = this.value.toLowerCase().trim();
-            let visibleRows = 0;
+        if (searchInput && emptyResult) {
+            searchInput.addEventListener('input', function () {
+                const keyword = this.value.toLowerCase().trim();
+                let visibleRows = 0;
 
-            rows.forEach(function (row) {
-                const visible = row.dataset.search.includes(keyword);
-                row.classList.toggle('hidden', !visible);
+                rows.forEach(function (row) {
+                    const visible = row.dataset.search.includes(keyword);
+                    row.classList.toggle('hidden', !visible);
 
-                if (visible) visibleRows++;
+                    if (visible) visibleRows++;
+                });
+
+                emptyResult.classList.toggle('hidden', visibleRows !== 0);
             });
+        }
 
-            emptyResult.classList.toggle('hidden', visibleRows !== 0);
-        });
-
+        @if($canManageSuppliers)
         const modal = document.getElementById('supplier-modal');
         const form = document.getElementById('supplier-form');
         const methodInput = document.getElementById('supplier-method');
@@ -349,7 +350,7 @@
             deleteModal.classList.add('hidden');
             deleteModal.classList.remove('flex');
         });
+        @endif
     });
 </script>
-@endif
 @endsection

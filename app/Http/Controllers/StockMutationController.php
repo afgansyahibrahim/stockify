@@ -10,9 +10,15 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use App\Models\StockAdjustment;
 use App\Services\ActivityLogger;
+use App\Services\InventoryCostResolver;
 
 class StockMutationController extends Controller
 {
+    public function __construct(
+        private readonly InventoryCostResolver $inventoryCostResolver
+    ) {
+    }
+
     public function stockIn()
     {
         $products = Product::where('is_active', true)
@@ -50,7 +56,7 @@ class StockMutationController extends Controller
             'exists:products,id',
         ],
             'items.*.quantity' => ['required', 'integer', 'min:1'],
-            'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
+            'items.*.unit_price' => ['required', 'numeric', 'min:0'],
         ]);
 
         DB::transaction(function () use ($validated) {
@@ -103,18 +109,28 @@ class StockMutationController extends Controller
     {
         $validated = $request->validate([
             'transaction_date' => ['required', 'date'],
+            'outflow_category' => ['required', 'in:sale,non_sale'],
             'destination' => ['required', 'string', 'max:150'],
             'reference_number' => ['nullable', 'string', 'max:100'],
             'notes' => ['nullable', 'string', 'max:1000'],
 
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_id' => [
-            'required',
-            'distinct',
-            'exists:products,id',
-        ],
+                'required',
+                'distinct',
+                'exists:products,id',
+            ],
             'items.*.quantity' => ['required', 'integer', 'min:1'],
+            'items.*.sale_unit_price' => ['nullable', 'numeric', 'min:0.01'],
         ]);
+
+        if ($validated['outflow_category'] === 'sale') {
+            $request->validate([
+                'items.*.sale_unit_price' => ['required', 'numeric', 'min:0.01'],
+            ]);
+        }
+
+        $unitCosts = [];
 
         foreach ($validated['items'] as $item) {
             $product = Product::findOrFail($item['product_id']);
@@ -126,85 +142,96 @@ class StockMutationController extends Controller
                         'items' => "Jumlah keluar untuk produk {$product->name} melebihi stok yang tersedia.",
                     ]);
             }
+
+            $unitCost = $this->inventoryCostResolver->resolve($product);
+
+            if ($unitCost <= 0) {
+                return back()
+                    ->withInput()
+                    ->withErrors([
+                        'items' => "HPP produk {$product->name} belum dapat ditentukan. " .
+                            'Setujui terlebih dahulu Barang Masuk yang memiliki harga beli.',
+                    ]);
+            }
+
+            $unitCosts[$product->id] = $unitCost;
         }
 
-        DB::transaction(function () use ($validated) {
-    $transaction = StockTransaction::create([
-        'transaction_code' =>
-            $this->generateTransactionCode('out'),
+        DB::transaction(function () use ($validated, $unitCosts) {
+            $transaction = StockTransaction::create([
+                'transaction_code' => $this->generateTransactionCode('out'),
+                'type' => 'out',
+                'outflow_category' => $validated['outflow_category'],
+                'status' => 'pending',
+                'created_by' => Auth::id(),
+                'destination' => $validated['destination'],
+                'reference_number' => $validated['reference_number'] ?? null,
+                'transaction_date' => $validated['transaction_date'],
+                'notes' => $validated['notes'] ?? null,
+            ]);
 
-        'type' => 'out',
-        'status' => 'pending',
-        'created_by' => Auth::id(),
+            $products = Product::query()
+                ->whereIn(
+                    'id',
+                    collect($validated['items'])->pluck('product_id')
+                )
+                ->get()
+                ->keyBy('id');
 
-        'destination' =>
-            $validated['destination'],
+            foreach ($validated['items'] as $item) {
+                $product = $products->get($item['product_id']);
 
-        'reference_number' =>
-            $validated['reference_number'] ?? null,
+                if (!$product) {
+                    throw new \RuntimeException(
+                        'Produk barang keluar tidak ditemukan.'
+                    );
+                }
 
-        'transaction_date' =>
-            $validated['transaction_date'],
+                $transaction->items()->create([
+                    'product_id' => $product->id,
+                    'quantity' => (int) $item['quantity'],
+                    // Snapshot HPP dari Barang Masuk yang telah disetujui.
+                    // Harga beli pada master Produk tidak digunakan.
+                    'unit_price' => (float) $unitCosts[$product->id],
+                    'sale_unit_price' => $validated['outflow_category'] === 'sale'
+                        ? (float) $item['sale_unit_price']
+                        : null,
+                ]);
+            }
 
-        'notes' =>
-            $validated['notes'] ?? null,
-    ]);
-
-    $products = Product::query()
-        ->whereIn(
-            'id',
-            collect($validated['items'])
-                ->pluck('product_id')
-        )
-        ->get()
-        ->keyBy('id');
-
-    foreach ($validated['items'] as $item) {
-        $product = $products->get(
-            $item['product_id']
-        );
-
-        if (!$product) {
-            throw new \RuntimeException(
-                'Produk barang keluar tidak ditemukan.'
+            ActivityLogger::log(
+                action: 'transaction.created',
+                description: $validated['outflow_category'] === 'sale'
+                    ? "Membuat pengajuan penjualan {$transaction->transaction_code}."
+                    : "Membuat pengajuan barang keluar {$transaction->transaction_code}.",
+                subject: $transaction,
+                oldValues: null,
+                newValues: [
+                    'type' => 'out',
+                    'outflow_category' => $transaction->outflow_category,
+                    'status' => 'pending',
+                    'destination' => $transaction->destination,
+                    'transaction_date' => $transaction->transaction_date,
+                    'total_products' => count($validated['items']),
+                    'total_quantity' => collect($validated['items'])->sum('quantity'),
+                ]
             );
-        }
-
-        $transaction->items()->create([
-            'product_id' => $product->id,
-            'quantity' => (int) $item['quantity'],
-            'unit_price' => (float) ($product->purchase_price ?? 0),
-        ]);
-    }
-    ActivityLogger::log(
-        action: 'transaction.created',
-
-        description:
-            "Membuat pengajuan barang keluar {$transaction->transaction_code}.",
-
-        subject: $transaction,
-
-        oldValues: null,
-
-        newValues: [
-            'type' => 'out',
-            'status' => 'pending',
-            'destination' => $transaction->destination,
-            'transaction_date' => $transaction->transaction_date,
-            'total_products' => count($validated['items']),
-            'total_quantity' => collect($validated['items'])
-                ->sum('quantity'),
-        ]
-    );
-});
+        });
 
         return redirect()
             ->route('stock.out')
-            ->with('success', 'Pengajuan barang keluar berhasil dikirim dan menunggu persetujuan.');
+            ->with(
+                'success',
+                $validated['outflow_category'] === 'sale'
+                    ? 'Pengajuan penjualan berhasil dikirim dan menunggu persetujuan.'
+                    : 'Pengajuan barang keluar berhasil dikirim dan menunggu persetujuan.'
+            );
     }
 
    public function history(Request $request)
 {
+    $isStaff = Auth::user()->role === 'staff';
+
     $query = StockTransaction::with([
         'creator',
         'approver',
@@ -220,7 +247,7 @@ class StockMutationController extends Controller
     |--------------------------------------------------------------------------
     */
 
-    if (Auth::user()->role === 'staff') {
+    if ($isStaff) {
         $query->where('status', 'approved');
     }
 
@@ -233,59 +260,42 @@ class StockMutationController extends Controller
     if ($request->filled('search')) {
         $search = trim((string) $request->search);
 
-        $query->where(function ($subQuery) use ($search) {
-            $subQuery
-                ->where(
-                    'transaction_code',
-                    'like',
-                    '%' . $search . '%'
-                )
-                ->orWhere(
-                    'reference_number',
-                    'like',
-                    '%' . $search . '%'
-                )
-                ->orWhere(
-                    'destination',
-                    'like',
-                    '%' . $search . '%'
-                )
-                ->orWhereHas(
-                    'supplier',
-                    function ($supplierQuery) use ($search) {
-                        $supplierQuery->where(
-                            'name',
-                            'like',
-                            '%' . $search . '%'
-                        );
-                    }
-                )
-                ->orWhereHas(
-                    'creator',
-                    function ($userQuery) use ($search) {
-                        $userQuery->where(
-                            'name',
-                            'like',
-                            '%' . $search . '%'
-                        );
-                    }
-                )
-                ->orWhereHas(
-                    'items.product',
-                    function ($productQuery) use ($search) {
-                        $productQuery
-                            ->where(
+        $query->where(function ($subQuery) use ($search, $isStaff) {
+            $subQuery->whereHas(
+                'items.product',
+                function ($productQuery) use ($search) {
+                    $productQuery
+                        ->where('name', 'like', '%' . $search . '%')
+                        ->orWhere('sku', 'like', '%' . $search . '%');
+                }
+            );
+
+            if (!$isStaff) {
+                $subQuery
+                    ->orWhere('transaction_code', 'like', '%' . $search . '%')
+                    ->orWhere('reference_number', 'like', '%' . $search . '%')
+                    ->orWhere('destination', 'like', '%' . $search . '%')
+                    ->orWhereHas(
+                        'supplier',
+                        function ($supplierQuery) use ($search) {
+                            $supplierQuery->where(
                                 'name',
                                 'like',
                                 '%' . $search . '%'
-                            )
-                            ->orWhere(
-                                'sku',
+                            );
+                        }
+                    )
+                    ->orWhereHas(
+                        'creator',
+                        function ($userQuery) use ($search) {
+                            $userQuery->where(
+                                'name',
                                 'like',
                                 '%' . $search . '%'
                             );
-                    }
-                );
+                        }
+                    );
+            }
         });
     }
 
@@ -309,7 +319,7 @@ class StockMutationController extends Controller
     */
 
     if (
-        Auth::user()->role !== 'staff' &&
+        !$isStaff &&
         $request->filled('status') &&
         in_array(
             $request->status,
@@ -448,60 +458,74 @@ class StockMutationController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | Riwayat penyesuaian Stock Opname
+    | Riwayat penyesuaian stok
     |--------------------------------------------------------------------------
     */
 
-    $adjustmentQuery = StockAdjustment::with([
+    $adjustmentRelations = [
         'product',
-        'stockOpname.creator',
-        'approver',
-    ])
+        'stockOpname',
+    ];
+
+    if (!$isStaff) {
+        $adjustmentRelations[] = 'stockOpname.creator';
+        $adjustmentRelations[] = 'approver';
+    }
+
+    $adjustmentQuery = StockAdjustment::with($adjustmentRelations)
         ->latest('adjusted_at')
         ->latest('id');
+
+    if ($isStaff) {
+        $adjustmentQuery
+            ->whereNotNull('adjusted_at')
+            ->whereHas('stockOpname', function ($opnameQuery) {
+                $opnameQuery
+                    ->where('status', 'approved')
+                    ->whereIn('adjustment_type', [
+                        'opname',
+                        'damage_loss',
+                    ]);
+            });
+    }
 
     if ($request->filled('search')) {
         $keyword = trim((string) $request->search);
 
         $adjustmentQuery->where(
-            function ($subQuery) use ($keyword) {
-                $subQuery
-                    ->whereHas(
-                        'product',
-                        function ($productQuery) use ($keyword) {
-                            $productQuery
-                                ->where(
-                                    'name',
-                                    'like',
-                                    '%' . $keyword . '%'
-                                )
-                                ->orWhere(
-                                    'sku',
+            function ($subQuery) use ($keyword, $isStaff) {
+                $subQuery->whereHas(
+                    'product',
+                    function ($productQuery) use ($keyword) {
+                        $productQuery
+                            ->where('name', 'like', '%' . $keyword . '%')
+                            ->orWhere('sku', 'like', '%' . $keyword . '%');
+                    }
+                );
+
+                if (!$isStaff) {
+                    $subQuery
+                        ->orWhereHas(
+                            'stockOpname',
+                            function ($opnameQuery) use ($keyword) {
+                                $opnameQuery->where(
+                                    'opname_code',
                                     'like',
                                     '%' . $keyword . '%'
                                 );
-                        }
-                    )
-                    ->orWhereHas(
-                        'stockOpname',
-                        function ($opnameQuery) use ($keyword) {
-                            $opnameQuery->where(
-                                'opname_code',
-                                'like',
-                                '%' . $keyword . '%'
-                            );
-                        }
-                    )
-                    ->orWhereHas(
-                        'approver',
-                        function ($approverQuery) use ($keyword) {
-                            $approverQuery->where(
-                                'name',
-                                'like',
-                                '%' . $keyword . '%'
-                            );
-                        }
-                    );
+                            }
+                        )
+                        ->orWhereHas(
+                            'approver',
+                            function ($approverQuery) use ($keyword) {
+                                $approverQuery->where(
+                                    'name',
+                                    'like',
+                                    '%' . $keyword . '%'
+                                );
+                            }
+                        );
+                }
             }
         );
     }
@@ -556,6 +580,13 @@ class StockMutationController extends Controller
                 $request->end_date
             );
         }
+    }
+
+    $summary['adjustments'] = (clone $adjustmentQuery)->count();
+
+    if ($isStaff) {
+        // Kartu "Total Aktivitas" Staff mencakup transaksi dan penyesuaian.
+        $summary['total'] += $summary['adjustments'];
     }
 
     $adjustments = $adjustmentQuery
@@ -654,5 +685,4 @@ private function generateTransactionCode(string $type): string
     );
 }
 
-    
 }

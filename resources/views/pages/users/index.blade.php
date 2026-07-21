@@ -11,11 +11,6 @@
                         Kelola akun Admin, Manager, dan Staff.
                     </p>
                 </div>
-
-                <a href="#tambah-pengguna"
-                    class="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700">
-                    + Tambah Pengguna
-                </a>
             </div>
 
             @if (session('success'))
@@ -207,8 +202,12 @@
 
                                     <div class="mt-4 flex flex-wrap justify-end gap-2">
                                         @if ($user->id !== auth()->id())
-                                            <button type="submit" form="delete-user-{{ $user->id }}"
-                                                onclick="return confirm('Hapus pengguna {{ $user->name }}?')"
+                                            <button type="button"
+                                                data-stockify-confirm-form="delete-user-{{ $user->id }}"
+                                                data-stockify-confirm="Hapus pengguna {{ $user->name }}?"
+                                                data-stockify-confirm-title="Hapus pengguna"
+                                                data-stockify-confirm-label="Ya, Hapus"
+                                                data-stockify-confirm-variant="danger"
                                                 class="rounded-lg border border-rose-200 bg-white px-4 py-2.5 text-sm font-semibold text-rose-600 hover:bg-rose-50">
                                                 Hapus
                                             </button>

@@ -127,12 +127,15 @@
             <form
                 method="POST"
                 action="{{ route('logout') }}"
+                data-stockify-confirm="Keluar dari Stockify sekarang?"
+                data-stockify-confirm-title="Konfirmasi keluar"
+                data-stockify-confirm-label="Ya, Keluar"
+                data-stockify-confirm-variant="danger"
             >
                 @csrf
 
                 <button
                     type="submit"
-                    onclick="return confirm('Keluar dari Stockify?')"
                     class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
                 >
                     Logout

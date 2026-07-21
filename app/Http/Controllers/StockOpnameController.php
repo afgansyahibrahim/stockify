@@ -11,9 +11,15 @@ use RuntimeException;
 use Throwable;
 use App\Models\StockAdjustment;
 use App\Services\ActivityLogger;
+use App\Services\InventoryCostResolver;
 
 class StockOpnameController extends Controller
 {
+    public function __construct(
+        private readonly InventoryCostResolver $inventoryCostResolver
+    ) {
+    }
+
     public function index(Request $request)
     {
         $baseQuery = StockOpname::query();
@@ -254,6 +260,7 @@ class StockOpnameController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
+            'adjustment_type' => ['required', 'in:opname,damage_loss'],
             'opname_date' => [
                 'required',
                 'date',
@@ -278,9 +285,15 @@ class StockOpnameController extends Controller
             ],
 
             'items.*.physical_stock' => [
-                'required',
+                'nullable',
                 'integer',
                 'min:0',
+            ],
+
+            'items.*.damaged_quantity' => [
+                'nullable',
+                'integer',
+                'min:1',
             ],
 
             'items.*.notes' => [
@@ -289,6 +302,17 @@ class StockOpnameController extends Controller
                 'max:255',
             ],
         ]);
+
+        if ($validated['adjustment_type'] === 'opname') {
+            $request->validate([
+                'items.*.physical_stock' => ['required', 'integer', 'min:0'],
+            ]);
+        } else {
+            $request->validate([
+                'items.*.physical_stock' => ['required', 'integer', 'min:1'],
+                'items.*.notes' => ['required', 'string', 'max:255'],
+            ]);
+        }
 
         try {
             DB::transaction(function () use ($validated) {
@@ -317,6 +341,8 @@ class StockOpnameController extends Controller
 
                     'status' => 'pending',
 
+                    'adjustment_type' => $validated['adjustment_type'],
+
                     'opname_date' =>
                         $validated['opname_date'],
 
@@ -343,11 +369,18 @@ class StockOpnameController extends Controller
                         );
                     }
 
-                    $physicalStock = (int)
-                        $item['physical_stock'];
-
                     $systemStock = (int)
                         $product->stock;
+
+                    $physicalStock = $validated['adjustment_type'] === 'damage_loss'
+                        ? $systemStock - (int) $item['physical_stock']
+                        : (int) $item['physical_stock'];
+
+                    if ($physicalStock < 0) {
+                        throw new RuntimeException(
+                            "Jumlah rusak/hilang untuk {$product->name} melebihi stok tersedia."
+                        );
+                    }
 
                     $opname->items()->create([
                         'product_id' => $product->id,
@@ -368,7 +401,9 @@ class StockOpnameController extends Controller
                     action: 'stock_opname.created',
 
                     description:
-                        "Membuat stock opname {$opname->opname_code}.",
+                        ($opname->adjustment_type === 'damage_loss'
+                            ? "Melaporkan barang rusak/hilang {$opname->opname_code}."
+                            : "Membuat stock opname {$opname->opname_code}."),
 
                     subject: $opname,
 
@@ -376,6 +411,7 @@ class StockOpnameController extends Controller
 
                     newValues: [
                         'status' => $opname->status,
+                        'adjustment_type' => $opname->adjustment_type,
                         'opname_date' => $opname->opname_date,
                         'total_products' =>
                             count($validated['items']),
@@ -465,6 +501,14 @@ class StockOpnameController extends Controller
                         'stock_before' => $currentStock,
                         'stock_after' => $physicalStock,
                         'difference' => $difference,
+                        'adjustment_type' => $opname->adjustment_type,
+                        // Simpan harga beli saat penyesuaian disetujui agar
+                        // perubahan harga produk berikutnya tidak mengubah
+                        // nilai kerugian yang sudah tercatat.
+                        'unit_cost' => $this->inventoryCostResolver->resolve(
+                            $product,
+                            now()
+                        ),
                         'approved_by' => Auth::id(),
                         'adjusted_at' => now(),
                     ]);
@@ -638,7 +682,27 @@ class StockOpnameController extends Controller
                     );
                 }
 
+                $opnameCode = $opname->opname_code;
+                $opnameStatus = $opname->status;
+                $opnameCreatorId = $opname->created_by;
+
                 $opname->delete();
+
+                ActivityLogger::log(
+                    action: 'stock_opname.deleted',
+
+                    description:
+                        "Menghapus stock opname {$opnameCode}.",
+
+                    subject: $opname,
+
+                    oldValues: [
+                        'status' => $opnameStatus,
+                        'created_by' => $opnameCreatorId,
+                    ],
+
+                    newValues: null
+                );
             });
 
             return back()->with(

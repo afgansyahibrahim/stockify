@@ -49,6 +49,59 @@
                 </div>
             </div>
 
+            <div class="rounded-xl border border-blue-200 bg-blue-50 p-5 dark:border-blue-900/60 dark:bg-blue-950/30">
+                <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                        <h2 class="font-bold text-blue-950 dark:text-blue-100">Ringkasan Penjualan dan Profit Estimasi</h2>
+                        <p class="mt-1 text-sm text-blue-700 dark:text-blue-300">Hanya penjualan dan penyesuaian baru yang sudah disetujui pada periode terpilih.</p>
+                    </div>
+                    <span class="text-xs font-semibold text-blue-700 dark:text-blue-300">Belum termasuk biaya operasional</span>
+                </div>
+
+                <div class="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <div class="rounded-lg bg-white p-4 shadow-sm dark:bg-gray-800">
+                        <p class="text-xs font-semibold uppercase text-slate-500">Omzet Penjualan</p>
+                        <p class="mt-2 text-xl font-bold text-emerald-600">Rp {{ number_format($summary['sales_revenue'], 0, ',', '.') }}</p>
+                    </div>
+                    <div class="rounded-lg bg-white p-4 shadow-sm dark:bg-gray-800">
+                        <p class="text-xs font-semibold uppercase text-slate-500">HPP Penjualan</p>
+                        <p class="mt-2 text-xl font-bold text-slate-900 dark:text-white">Rp {{ number_format($summary['sales_cost'], 0, ',', '.') }}</p>
+                    </div>
+                    <div class="rounded-lg bg-white p-4 shadow-sm dark:bg-gray-800">
+                        <p class="text-xs font-semibold uppercase text-slate-500">Profit Kotor</p>
+                        <p class="mt-2 text-xl font-bold text-blue-700 dark:text-blue-300">Rp {{ number_format($summary['gross_profit'], 0, ',', '.') }}</p>
+                    </div>
+                    @php
+                        $estimatedProfit = (float) $summary['estimated_profit'];
+                        $profitCardClass = $estimatedProfit < 0
+                            ? 'border border-rose-200 bg-rose-50 dark:border-rose-900/60 dark:bg-rose-950/30'
+                            : ($estimatedProfit > 0
+                                ? 'border border-emerald-200 bg-emerald-50 dark:border-emerald-900/60 dark:bg-emerald-950/30'
+                                : 'border border-slate-200 bg-slate-50 dark:border-gray-700 dark:bg-gray-800');
+                        $profitTextClass = $estimatedProfit < 0
+                            ? 'text-rose-700 dark:text-rose-300'
+                            : ($estimatedProfit > 0
+                                ? 'text-emerald-700 dark:text-emerald-300'
+                                : 'text-slate-800 dark:text-white');
+                    @endphp
+
+                    <div class="rounded-lg p-4 shadow-sm {{ $profitCardClass }}">
+                        <p class="text-xs font-semibold uppercase {{ $profitTextClass }}">
+                            Profit Bersih Estimasi
+                        </p>
+                        <p class="mt-2 text-xl font-bold {{ $profitTextClass }}">
+                            Rp {{ number_format($estimatedProfit, 0, ',', '.') }}
+                        </p>
+                    </div>
+                </div>
+
+                <div class="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+                    <p class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">Rusak/hilang: − Rp {{ number_format($summary['damage_loss'], 0, ',', '.') }}</p>
+                    <p class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">Opname minus: − Rp {{ number_format($summary['opname_loss'], 0, ',', '.') }}</p>
+                    <p class="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-violet-700">Opname plus (bukan profit): + Rp {{ number_format($summary['opname_gain'], 0, ',', '.') }}</p>
+                </div>
+            </div>
+
             <form method="GET" action="{{ route('reports.index') }}"
                 class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div class="grid gap-4 lg:grid-cols-3">
@@ -132,6 +185,22 @@
 
                 <div class="divide-y divide-slate-100">
                     @forelse ($transactions as $transaction)
+                        @php
+                            $isSale = $transaction->type === 'out'
+                                && $transaction->outflow_category === 'sale';
+
+                            $transactionValue = $transaction->items->sum(
+                                fn ($item) => (int) $item->quantity * (float) (
+                                    $isSale
+                                        ? ($item->sale_unit_price ?? 0)
+                                        : ($item->unit_price ?? 0)
+                                )
+                            );
+
+                            $transactionValueLabel = $transaction->type === 'in'
+                                ? 'Nilai Pembelian'
+                                : ($isSale ? 'Nilai Penjualan' : 'Nilai Modal Keluar');
+                        @endphp
                         <div class="p-5">
                             <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                                 <div>
@@ -142,7 +211,11 @@
                                             {{ $transaction->type === 'in'
                                                 ? 'bg-emerald-100 text-emerald-700'
                                                 : 'bg-rose-100 text-rose-700' }}">
-                                            {{ $transaction->type === 'in' ? 'Barang Masuk' : 'Barang Keluar' }}
+                                            {{ $transaction->type === 'in'
+                                                ? 'Barang Masuk'
+                                                : ($transaction->outflow_category === 'sale'
+                                                    ? 'Penjualan'
+                                                    : 'Barang Keluar') }}
                                         </span>
                                     </div>
 
@@ -158,11 +231,20 @@
                                     </p>
                                 </div>
 
-                                <div class="lg:text-right">
-                                    <p class="text-sm text-slate-500">Total Barang</p>
-                                    <p class="text-xl font-bold text-slate-900">
-                                        {{ $transaction->items->sum('quantity') }} Pcs
-                                    </p>
+                                <div class="flex flex-wrap gap-5 lg:justify-end lg:text-right">
+                                    <div>
+                                        <p class="text-sm text-slate-500">Total Barang</p>
+                                        <p class="text-xl font-bold text-slate-900">
+                                            {{ $transaction->items->sum('quantity') }} Pcs
+                                        </p>
+                                    </div>
+
+                                    <div class="border-l border-slate-200 pl-5">
+                                        <p class="text-sm text-slate-500">{{ $transactionValueLabel }}</p>
+                                        <p class="text-xl font-bold {{ $isSale ? 'text-emerald-600' : 'text-slate-900' }}">
+                                            Rp {{ number_format($transactionValue, 0, ',', '.') }}
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
 
@@ -173,13 +255,32 @@
 
                                 <div class="mt-3 space-y-2">
                                     @foreach ($transaction->items as $item)
-                                        <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-sm last:border-0 last:pb-0">
-                                            <span class="font-medium text-slate-700">
+                                        @php
+                                            $itemPrice = $isSale
+                                                ? (float) ($item->sale_unit_price ?? 0)
+                                                : (float) ($item->unit_price ?? 0);
+                                        @endphp
+
+                                        <div class="flex flex-col gap-2 border-b border-slate-200 pb-2 text-sm last:border-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+                                            <div>
+                                                <p class="font-medium text-slate-700">
                                                 {{ $item->product?->name ?? 'Produk sudah dihapus' }}
-                                            </span>
-                                            <span class="font-semibold text-slate-900">
-                                                {{ $item->quantity }} Pcs
-                                            </span>
+                                                </p>
+                                                <p class="mt-1 text-xs text-slate-500">
+                                                    {{ $transaction->type === 'in'
+                                                        ? 'Harga beli'
+                                                        : ($isSale ? 'Harga jual' : 'Nilai modal') }}:
+                                                    Rp {{ number_format($itemPrice, 0, ',', '.') }} / Pcs
+                                                </p>
+                                            </div>
+                                            <div class="text-left sm:text-right">
+                                                <p class="font-semibold text-slate-900">
+                                                    {{ $item->quantity }} Pcs
+                                                </p>
+                                                <p class="mt-1 text-xs font-semibold {{ $isSale ? 'text-emerald-600' : 'text-slate-600' }}">
+                                                    Subtotal Rp {{ number_format($item->quantity * $itemPrice, 0, ',', '.') }}
+                                                </p>
+                                            </div>
                                         </div>
                                     @endforeach
                                 </div>
